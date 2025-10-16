@@ -1,28 +1,29 @@
 # app/models/user.py
 
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from bson import ObjectId
 
 class User(BaseModel):
-    id: Optional[ObjectId] = Field(None, alias="_id")
+    id: ObjectId = Field(alias="_id")
+    username: str
     email: EmailStr
-    hashed_password: str
-    role: str # "Admin", "HR Manager", or "Employee"
+    full_name: str | None = None
+    role: str
+    disabled: bool | None = None
 
-    class Config:
-        arbitrary_types_allowed = True
-        json_encoders = {
-            ObjectId: str
-        }
-        json_schema_extra = {
-            "example": {
-                "email": "user@example.com",
-                "role": "Employee"
-            }
-        }
+    # --- THIS IS THE FIX ---
+    model_config = ConfigDict(
+        populate_by_name=True,
+        arbitrary_types_allowed=True, # Allow ObjectId
+        json_encoders={ObjectId: str}
+    )
+
+class UserInDB(User):
+    hashed_password: str
 
 class UserCreate(BaseModel):
+    username: str
     email: EmailStr
     password: str
+    full_name: str | None = None
     role: str

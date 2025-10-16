@@ -1,29 +1,21 @@
 # app/api/auth.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from bson import ObjectId
 
 # Import all necessary components
-from app.models.user import User, UserCreate
+from app.models.user import User, UserCreate # <-- Use UserCreate here
 from app.auth.password import hash_password, verify_password
 from app.auth.jwt import create_access_token, decode_access_token, TokenData
 from app.db.database import user_collection
 
 router = APIRouter()
 
-# --- Security Dependencies ---
-
-# This object is a callable class that will look for the `Authorization`
-# header and check if it contains a `Bearer` token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    """
-    Dependency to get the current user from a JWT token.
-    This function is the core of your API's security.
-    """
+    """ Dependency to get current user from JWT token. """
     token_data = decode_access_token(token)
     if not token_data or not token_data.user_id:
         raise HTTPException(
@@ -39,14 +31,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    # Return the user data as a Pydantic model for type safety
     return User(**user)
 
 def require_hr_or_admin(current_user: User = Depends(get_current_user)):
-    """
-    Dependency that can be used on endpoints to require the current user
-    to have the role of 'HR Manager' or 'Admin'.
-    """
+    """ Dependency to require HR Manager or Admin role. """
     if current_user.role not in ["HR Manager", "Admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -57,37 +45,45 @@ def require_hr_or_admin(current_user: User = Depends(get_current_user)):
 # --- Authentication Endpoints ---
 
 @router.post("/register", response_model=User)
-async def register_user(user_data: UserCreate):
-    """Registers a new user."""
-    existing_user = await user_collection.find_one({"email": user_data.email})
+async def register_user(user_data: UserCreate): # <-- Use UserCreate
+    """ Registers a new user with a plain password. """
+    existing_user = await user_collection.find_one({"username": user_data.username})
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists",
+            detail="User with this username already exists",
         )
 
+    # Hash the plain password from the UserCreate model
     hashed = hash_password(user_data.password)
     
     user_object = {
+        "username": user_data.username,
         "email": user_data.email,
-        "hashed_password": hashed,
-        "role": user_data.role
+        "full_name": user_data.full_name,
+        "hashed_password": hashed, # Store the hashed password
+        "role": user_data.role,
+        "disabled": False # Default to not disabled
     }
 
     new_user = await user_collection.insert_one(user_object)
     created_user = await user_collection.find_one({"_id": new_user.inserted_id})
-    return created_user
+    return User(**created_user)
 
 @router.post("/login")
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Logs in a user and returns an access token."""
-    user = await user_collection.find_one({"email": form_data.username})
+    """ Logs in a user via username and password. """
+    # Find user by username
+    user = await user_collection.find_one({"username": form_data.username})
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    if user.get("disabled"):
+        raise HTTPException(status_code=400, detail="Inactive user")
 
     access_token = create_access_token(
         data={"sub": str(user["_id"]), "role": user["role"]}

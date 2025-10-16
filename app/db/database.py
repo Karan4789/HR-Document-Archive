@@ -1,22 +1,15 @@
 # app/db/database.py
 
 import motor.motor_asyncio
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings
-from app.config import settings
 
-class Settings(BaseSettings):
-    MONGODB_URI: str
-    DATABASE_NAME: str
+# --- TEMPORARILY HARDCODE SETTINGS FOR DEBUGGING ---
+# Replace these with your actual values.
+MONGODB_URI = "mongodb+srv://myAtlasDBUser:ErenYeager@myatlasclusteredu.i5k4g9n.mongodb.net/?retryWrites=true&w=majority&appName=myAtlasClusterEDU"
+DATABASE_NAME = "hr_dms"
+# --- END OF HARDCODED SETTINGS ---
 
-    class Config:
-        env_file = ".env"
+client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URI)
+database = client[DATABASE_NAME]
 
-settings = Settings()
-
-client = motor.motor_asyncio.AsyncIOMotorClient(settings.MONGODB_URI)
-database = client[settings.DATABASE_NAME]
-
-# You can create collections here
 user_collection = database.get_collection("users")
 document_collection = database.get_collection("documents")
