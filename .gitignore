@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+
+# VS Code
+.vscode/
+
+# Operating System files
+# Windows
+Thumbs.db
+# macOS
+.DS_Store
+
+# Log files
+*.log
+
+# Test and coverage reports
+.coverage
+htmlcov/
+*.sqlite3
