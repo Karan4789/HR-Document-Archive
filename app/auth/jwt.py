@@ -5,11 +5,8 @@ from typing import Optional
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
-# --- TEMPORARILY HARDCODE SETTINGS FOR DEBUGGING ---
-JWT_SECRET_KEY = "your_jwt_secret_key" # Use your actual secret key
-JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-# --- END OF HARDCODED SETTINGS ---
+# Import the central settings object
+from app.config import settings
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
@@ -17,15 +14,27 @@ class TokenData(BaseModel):
 
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Use the expiration time from the settings object
+    expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
     expire_naive = expire.replace(tzinfo=None)
     to_encode.update({"exp": expire_naive})
-    encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    
+    # Use the secret key and algorithm from the settings object
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm
+    )
     return encoded_jwt
 
 def decode_access_token(token: str) -> TokenData:
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        # Use the secret key and algorithm from the settings object
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm]
+        )
         user_id: str = payload.get("sub")
         role: str = payload.get("role")
         if user_id is None:
