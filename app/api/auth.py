@@ -88,4 +88,4 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(
         data={"sub": str(user["_id"]), "role": user["role"]}
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"message": "Login successful", "access_token": access_token, "token_type": "bearer"}

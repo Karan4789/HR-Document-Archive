@@ -16,6 +16,7 @@ from app.api.auth import get_current_user, require_hr_or_admin
 
 # Import the core business logic function
 from app.core.document import create_document_version
+from app.core.validator import validate_object_id
 
 router = APIRouter()
 
@@ -28,11 +29,10 @@ async def upload_document(
 ):
     """
     API endpoint to upload a document for a specific employee.
-    This handles HTTP logic and calls the core business logic.
     """
     try:
-        # Convert string ID to MongoDB ObjectId
-        employee_id_obj = ObjectId(employee_id)
+        # Use the new, safer validator function
+        employee_id_obj = validate_object_id(employee_id)
         
         # Call the core function to do the actual work
         document = await create_document_version(
@@ -43,11 +43,12 @@ async def upload_document(
             original_filename=file.filename,
         )
         return document
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid employee ID format.")
+    except ValueError as e:
+        # Now, this will catch the specific error from our validator
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        # Generic error handler
-        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+        # Generic error handler for other unexpected issues
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
 @router.get("/documents/my-documents", response_model=List[Document])

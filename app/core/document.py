@@ -64,12 +64,20 @@ async def create_document_version(
         return Document(**updated_document)
     else:
         # Document is new: Create it with its first version
-        document_data = Document(
+        document_data_model = Document(
             employee_id=employee_id,
             document_type=document_type,
             original_filename=original_filename,
             versions=[new_version]
         )
-        result = await document_collection.insert_one(document_data.dict(by_alias=True))
+        
+        # Convert the Pydantic model to a dictionary
+        document_to_insert = document_data_model.dict(by_alias=True)
+        
+        # **THE FIX:** If the _id is None, remove it before inserting.
+        if document_to_insert.get("_id") is None:
+            del document_to_insert["_id"]
+
+        result = await document_collection.insert_one(document_to_insert)
         created_document = await document_collection.find_one({"_id": result.inserted_id})
         return Document(**created_document)
