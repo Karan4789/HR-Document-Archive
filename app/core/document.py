@@ -12,12 +12,7 @@ os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
 
 async def handle_document_upload(file, employee_id: str, document_type: str, uploader_id: str):
-    """
-    Handles upload logic for a new or existing document.
-    Creates new master record for first uploads or increments version for existing docs.
-    """
-
-    # Step 1: Check if document already exists for this employee & doc type
+    # Step 1: Check if document exists
     existing_doc = await document_collection.find_one({
         "employee_id": ObjectId(employee_id),
         "document_type": document_type
@@ -33,17 +28,24 @@ async def handle_document_upload(file, employee_id: str, document_type: str, upl
         buffer.write(await file.read())
 
     if existing_doc is None:
-        # --- CASE 1: New document, create new master ---
+        # New document case
         new_doc = Document(
             employee_id=ObjectId(employee_id),
             document_type=document_type,
             original_filename=file.filename,
             latest_version=1
         )
-        doc_insert = await document_collection.insert_one(new_doc.model_dump(by_alias=True))
+        # Prepare document dict to insert, omitting None _id field
+        doc_dict = new_doc.model_dump(by_alias=True)
+        if "_id" in doc_dict and doc_dict["_id"] is None:
+            del doc_dict["_id"]
+
+        doc_insert = await document_collection.insert_one(doc_dict)
         document_id = doc_insert.inserted_id
 
-        # Create first version entry
+        if document_id is None:
+            raise Exception("Failed to insert new master document.")
+
         version = DocumentVersion(
             document_id=document_id,
             version_number=1,
@@ -55,8 +57,13 @@ async def handle_document_upload(file, employee_id: str, document_type: str, upl
         return {"message": "New document created", "version": 1, "document_id": str(document_id)}
 
     else:
-        # --- CASE 2: Existing document, create new version ---
-        document_id = existing_doc["_id"]
+        # Existing document case
+        document_id = existing_doc.get("_id")
+
+        # Sanity check for _id presence
+        if not document_id or not isinstance(document_id, ObjectId):
+            raise Exception("Existing document missing valid '_id'")
+
         current_version = existing_doc.get("latest_version", 1)
         new_version_number = current_version + 1
 
@@ -64,17 +71,18 @@ async def handle_document_upload(file, employee_id: str, document_type: str, upl
             document_id=document_id,
             version_number=new_version_number,
             file_path=file_path,
-            uploader_id=ObjectId(uploader_id),
+            uploader_id=ObjectId(uploader_id)
         )
         await version_collection.insert_one(version.model_dump(by_alias=True))
 
-        # Update master with new version number and timestamp
         await document_collection.update_one(
             {"_id": document_id},
             {"$set": {"latest_version": new_version_number, "updated_at": datetime.utcnow()}}
         )
 
         return {"message": "New version added", "version": new_version_number, "document_id": str(document_id)}
+
+
 async def check_out_document(document_id: str, user_id: str):
     """
     Checks out a document (locks it) for exclusive editing.
