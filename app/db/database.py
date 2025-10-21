@@ -11,3 +11,4 @@ database = client[settings.database_name]
 
 user_collection = database.get_collection("users")
 document_collection = database.get_collection("documents")
+version_collection = database.get_collection("document_versions")

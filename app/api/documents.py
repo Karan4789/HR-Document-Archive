@@ -1,26 +1,27 @@
 # app/api/documents.py
-
 import os
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import FileResponse
 from bson import ObjectId
 
-# Import models
 from app.models.document import Document
 from app.models.user import User
 
-# Import database and security dependencies
-from app.db.database import document_collection
+from app.db.database import document_collection, version_collection
 from app.api.auth import get_current_user, require_hr_or_admin
 
-# Import the core business logic function
-from app.core.document import create_document_version
+from app.core.document import (
+    handle_document_upload,
+    check_out_document,
+    check_in_document
+)
 from app.core.validator import validate_object_id
 
 router = APIRouter()
 
-@router.post("/documents/upload", response_model=Document)
+
+@router.post("/documents/upload")
 async def upload_document(
     employee_id: str,
     document_type: str,
@@ -28,40 +29,37 @@ async def upload_document(
     current_user: User = Depends(require_hr_or_admin)
 ):
     """
-    API endpoint to upload a document for a specific employee.
+    Upload a new document or new version (handled in core).
     """
-    try:
-        # Use the new, safer validator function
-        employee_id_obj = validate_object_id(employee_id)
-        
-        # Call the core function to do the actual work
-        document = await create_document_version(
-            file=file,
-            user=current_user,
-            employee_id=employee_id_obj,
-            document_type=document_type,
-            original_filename=file.filename,
-        )
-        return document
-    except ValueError as e:
-        # Now, this will catch the specific error from our validator
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        # Generic error handler for other unexpected issues
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+    result = await handle_document_upload(
+        file,
+        employee_id,
+        document_type,
+        uploader_id=str(current_user.id)
+    )
+    return result
 
 
 @router.get("/documents/my-documents", response_model=List[Document])
 async def get_my_documents(current_user: User = Depends(get_current_user)):
-    """Retrieves all documents belonging to the currently logged-in user."""
-    documents = await document_collection.find({"employee_id": current_user.id}).to_list(100)
-    return documents
+    docs = await document_collection.find({"employee_id": current_user.id}).to_list(100)
+    return docs
 
 @router.get("/documents/user/{employee_id}", response_model=List[Document])
 async def get_user_documents(employee_id: str, current_user: User = Depends(require_hr_or_admin)):
-    """Retrieves all documents for a specific employee. HR and Admin only."""
-    documents = await document_collection.find({"employee_id": ObjectId(employee_id)}).to_list(100)
-    return documents
+    docs = await document_collection.find({"employee_id": ObjectId(employee_id)}).to_list(100)
+    return docs
+
+@router.get("/documents/{doc_id}/versions")
+async def list_document_versions(doc_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Returns all versions for a given document.
+    """
+    versions = await version_collection.find({"document_id": ObjectId(doc_id)}).sort("version_number", -1).to_list(100)
+    if not versions:
+        raise HTTPException(404, detail="No versions found.")
+    return versions
+
 
 @router.get("/documents/download/{doc_id}/version/{version_num}")
 async def download_document_version(
@@ -69,28 +67,50 @@ async def download_document_version(
     version_num: int, 
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Downloads a specific version of a document.
-    """
-    document = await document_collection.find_one({"_id": ObjectId(doc_id)})
-
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-
-    # Security Check
-    is_owner = document["employee_id"] == current_user.id
+    doc = await document_collection.find_one({"_id": ObjectId(doc_id)})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    is_owner = doc["employee_id"] == current_user.id
     is_privileged = current_user.role in ["HR Manager", "Admin"]
     if not is_owner and not is_privileged:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this document")
-    
-    # Find version
-    version_to_download = next((v for v in document["versions"] if v["version_number"] == version_num), None)
-    
-    if not version_to_download or not os.path.exists(version_to_download["file_path"]):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found or file is missing")
+        raise HTTPException(403, "Not authorized")
 
+    version = await version_collection.find_one({
+        "document_id": ObjectId(doc_id),
+        "version_number": version_num
+    })
+    if not version or not os.path.exists(version["file_path"]):
+        raise HTTPException(404, "Version/file missing")
     return FileResponse(
-        path=version_to_download["file_path"],
-        filename=document["original_filename"],
+        path=version["file_path"],
+        filename=doc["original_filename"],
         media_type='application/octet-stream'
     )
+
+@router.post("/documents/{doc_id}/checkout")
+async def checkout_document(doc_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Locks a document for exclusive editing, if not already checked out.
+    """
+    data, status = await check_out_document(doc_id, user_id=str(current_user.id))
+    if status == 409:
+        raise HTTPException(409, detail=data["error"])
+    elif status == 404:
+        raise HTTPException(404, detail=data["error"])
+    return data
+
+@router.post("/documents/{doc_id}/checkin")
+async def checkin_document(
+    doc_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    data, status = await check_in_document(
+        document_id=doc_id,
+        uploader_id=str(current_user.id),
+        file=file,
+        original_filename=file.filename
+    )
+    if status != 200:
+        raise HTTPException(status_code=status, detail=data["error"])
+    return data
