@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from bson import ObjectId
 
 from app.models.document import Document
+from app.models.document import DocumentVersion
 from app.models.user import User
 
 from app.db.database import document_collection, version_collection
@@ -50,16 +51,23 @@ async def get_user_documents(employee_id: str, current_user: User = Depends(requ
     docs = await document_collection.find({"employee_id": ObjectId(employee_id)}).to_list(100)
     return docs
 
-@router.get("/documents/{doc_id}/versions")
+@router.get("/documents/{doc_id}/versions", response_model=List[DocumentVersion]) # Keep response_model
 async def list_document_versions(doc_id: str, current_user: User = Depends(get_current_user)):
     """
     Returns all versions for a given document.
     """
-    versions = await version_collection.find({"document_id": ObjectId(doc_id)}).sort("version_number", -1).to_list(100)
-    if not versions:
-        raise HTTPException(404, detail="No versions found.")
-    return versions
+    # Fetch raw data from MongoDB
+    versions_cursor = version_collection.find({"document_id": ObjectId(doc_id)}).sort("version_number", -1)
+    versions_list = await versions_cursor.to_list(100)
 
+    if not versions_list:
+        raise HTTPException(status_code=404, detail="No versions found for this document.")
+
+    # Explicitly parse the list of dicts into a list of DocumentVersion models
+    # This ensures Pydantic's json_encoders are properly applied
+    response_data = [DocumentVersion(**v) for v in versions_list]
+    
+    return response_data
 
 @router.get("/documents/download/{doc_id}/version/{version_num}")
 async def download_document_version(
