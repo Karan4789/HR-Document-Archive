@@ -46,6 +46,38 @@ async def get_my_documents(current_user: User = Depends(get_current_user)):
     docs = await document_collection.find({"employee_id": current_user.id}).to_list(100)
     return docs
 
+@router.get("/documents/{doc_id}", response_model=Document)
+async def get_document(doc_id: str, current_user: User = Depends(get_current_user)):
+    """
+    Get details of a specific document by ID.
+    Only the document owner, HR Manager, or Admin can access it.
+    """
+    try:
+        doc = await document_collection.find_one({"_id": ObjectId(doc_id)})
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document ID format",
+        )
+    
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    
+    # Check authorization
+    is_owner = str(doc["employee_id"]) == str(current_user.id)
+    is_privileged = current_user.role in ["HR Manager", "Admin"]
+    
+    if not is_owner and not is_privileged:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this document",
+        )
+    
+    return Document(**doc)
+
 @router.get("/documents/user/{employee_id}", response_model=List[Document])
 async def get_user_documents(employee_id: str, current_user: User = Depends(require_hr_or_admin)):
     docs = await document_collection.find({"employee_id": ObjectId(employee_id)}).to_list(100)
@@ -89,10 +121,19 @@ async def download_document_version(
     })
     if not version or not os.path.exists(version["file_path"]):
         raise HTTPException(404, "Version/file missing")
+    
+    file_ext = os.path.splitext(doc["original_filename"])[1].lower()
+    media_type_map = {
+        ".doc": "application/msword",
+        ".txt": "text/plain"
+    }
+    
+    media_type = media_type_map.get(file_ext, "application/octet-stream")
+    
     return FileResponse(
         path=version["file_path"],
         filename=doc["original_filename"],
-        media_type='application/octet-stream'
+        media_type=media_type
     )
 
 @router.post("/documents/{doc_id}/checkout")

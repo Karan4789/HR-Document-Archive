@@ -88,3 +88,44 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         data={"sub": str(user["_id"]), "role": user["role"]}
     )
     return {"message": "Login successful", "access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=User)
+async def get_current_user_details(current_user: User = Depends(get_current_user)):
+    """
+    Get details of the currently authenticated user.
+    """
+    return current_user
+
+@router.get("/employees/{employee_id}", response_model=User)
+async def get_employee_details(
+    employee_id: str,
+    current_user: User = Depends(require_hr_or_admin)
+):
+    """
+    Get details of a specific employee by ID.
+    Requires HR Manager or Admin role.
+    """
+    try:
+        employee = await user_collection.find_one({"_id": ObjectId(employee_id)})
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid employee ID format",
+        )
+    
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Employee not found",
+        )
+    
+    return User(**employee)
+
+@router.get("/employees", response_model=list[User])
+async def get_all_employees(current_user: User = Depends(require_hr_or_admin)):
+    """
+    Get a list of all employees.
+    Requires HR Manager or Admin role.
+    """
+    employees = await user_collection.find({}).to_list(None)
+    return [User(**emp) for emp in employees]
