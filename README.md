@@ -125,34 +125,85 @@ The API will be available at `http://127.0.0.1:8000`. Interactive documentation 
 ### Authentication
 
 -   **`POST /register`**: Registers a new user.
+    -   **Body**: `username`, `email`, `password`, `full_name`, `role` (Employee, HR Manager, Admin)
+    -   **Response**: User object with ID
+
 -   **`POST /login`**: Authenticates a user and returns a JWT access token.
+    -   **Body**: `username`, `password` (form data)
+    -   **Response**: `access_token`, `token_type`
+
+-   **`GET /me`**: Retrieves details of the currently authenticated user.
+    -   **Requires**: Valid JWT token
+    -   **Response**: User object
+
+-   **`GET /employees`**: Retrieves a list of all employees in the system.
+    -   **Requires**: HR Manager or Admin role
+    -   **Response**: List of User objects
+
+-   **`GET /employees/{employee_id}`**: Retrieves details of a specific employee.
+    -   **Requires**: HR Manager or Admin role
+    -   **Parameters**: `employee_id` (MongoDB ObjectId)
+    -   **Response**: User object
 
 ### Document Management
 
 *All document endpoints require a valid JWT Bearer token in the `Authorization` header.*
 
 -   **`POST /documents/upload`**
-    -   Uploads a **new** document. Creates version 1 of a master document.
-    -   **Important**: This endpoint is blocked if the document already exists to enforce the check-in/check-out workflow.
-    -   **Requires**: HR/Admin role.
+    -   Uploads a new document or a new version of an existing document.
+    -   **Requires**: HR Manager or Admin role
+    -   **Parameters**: 
+        -   `employee_id` (query): The ID of the employee
+        -   `document_type` (query): Type of document (e.g., Contract, Agreement, etc.)
+        -   `file` (form): The document file to upload
+    -   **Response**: Document object with metadata
 
 -   **`GET /documents/my-documents`**
     -   Retrieves a list of all documents belonging to the currently logged-in user.
+    -   **Requires**: Valid JWT token
+    -   **Response**: List of Document objects
+
+-   **`GET /documents/{doc_id}`**
+    -   Retrieves details of a specific document by ID.
+    -   **Requires**: Document owner, HR Manager, or Admin role
+    -   **Parameters**: `doc_id` (path): Document ID
+    -   **Response**: Document object
 
 -   **`GET /documents/user/{employee_id}`**
-    -   Retrieves a list of all documents for a specific employee. **Requires**: HR/Admin role.
+    -   Retrieves a list of all documents for a specific employee.
+    -   **Requires**: HR Manager or Admin role
+    -   **Parameters**: `employee_id` (path): Employee ID
+    -   **Response**: List of Document objects
 
 -   **`GET /documents/{doc_id}/versions`**
-    -   Lists the complete version history for a specific master document.
-
--   **`POST /documents/{doc_id}/checkout`**
-    -   Locks a document for editing, preventing others from making changes.
-
--   **`POST /documents/{doc_id}/checkin`**
-    -   Uploads a new version of a document that is currently checked out by the user, then releases the lock.
+    -   Lists the complete version history for a specific document.
+    -   **Requires**: Document owner, HR Manager, or Admin role
+    -   **Parameters**: `doc_id` (path): Document ID
+    -   **Response**: List of DocumentVersion objects
 
 -   **`GET /documents/download/{doc_id}/version/{version_num}`**
-    -   Downloads a specific version of a document. Requires ownership or HR/Admin role.
+    -   Downloads a specific version of a document.
+    -   **Requires**: Document owner, HR Manager, or Admin role
+    -   **Parameters**: 
+        -   `doc_id` (path): Document ID
+        -   `version_num` (path): Version number
+    -   **Response**: File download with appropriate `Content-Type` header
+    -   **Supported File Types**: `.doc`, `.docx`, `.pdf`, `.txt`, `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.png`, `.jpg`, `.jpeg`
+
+-   **`POST /documents/{doc_id}/checkout`**
+    -   Locks a document for exclusive editing by the current user.
+    -   **Requires**: Valid JWT token
+    -   **Parameters**: `doc_id` (path): Document ID
+    -   **Response**: Checkout confirmation with lock status
+    -   **Note**: Returns `409 Conflict` if document is already checked out by another user
+
+-   **`POST /documents/{doc_id}/checkin`**
+    -   Uploads a new version of a checked-out document and releases the lock.
+    -   **Requires**: Valid JWT token (must be the user who checked out the document)
+    -   **Parameters**: 
+        -   `doc_id` (path): Document ID
+        -   `file` (form): The updated document file
+    -   **Response**: Document object with new version metadata
 
 ---
 
